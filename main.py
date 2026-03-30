@@ -10,7 +10,7 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "8658828353:AAHvZmhjuQj038V-_jCzcFENHsHAwcuGcxI"  # <-- Вставь сюда токен своего Telegram-бота
+TOKEN = "ТВОЙ_ТОКЕН"  # <-- Вставь сюда токен своего Telegram-бота
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
