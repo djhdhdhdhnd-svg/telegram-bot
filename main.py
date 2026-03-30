@@ -7,10 +7,11 @@ from aiogram.filters import Command
 from tinydb import TinyDB, Query
 from datetime import date
 import logging
+import os  # <- добавляем для переменных окружения
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "ТВОЙ_ТОКЕН"  # <-- Вставь сюда токен своего Telegram-бота
+TOKEN = os.getenv("TOKEN")  # <- берём токен из переменной окружения
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
