@@ -20,23 +20,8 @@ dp = Dispatcher()
 journal_db = TinyDB("journal.json")
 journal_table = journal_db.table("journal")
 
-# Загружаем продукты из файла при старте
-products_db = TinyDB("products.json")
-products_table = products_db.table("products")
-with open("products.json", encoding="utf-8") as f:
-    products = json.load(f)
-products_table.truncate()  # очищаем старую базу
-products_table.insert_multiple(products)
-
 # Функция для парсинга продукта
 def parse_product(text):
-    """
-    Поддерживает форматы:
-    курица 150г
-    150г курица
-    яйцо 2шт
-    молоко 200мл
-    """
     text = text.lower().strip()
     match = re.match(r'(\d+)\s*(г|мл|шт)?\s*(.+)', text)
     if match:
@@ -64,13 +49,22 @@ async def handle_message(message: types.Message):
         total_fat = sum(r["fat"] for r in records)
         total_carbs = sum(r["carbs"] for r in records)
 
-        msg = f"Сегодняшний дневной итог:\nКкал: {total_kcal:.1f}\nБелки: {total_protein:.1f} г\nЖиры: {total_fat:.1f} г\nУглеводы: {total_carbs:.1f} г"
+        msg = (
+            f"Сегодняшний дневной итог:\n"
+            f"Ккал: {total_kcal:.1f}\n"
+            f"Белки: {total_protein:.1f} г\n"
+            f"Жиры: {total_fat:.1f} г\n"
+            f"Углеводы: {total_carbs:.1f} г"
+        )
         await message.answer(msg)
         return
 
-    # Можно писать несколько продуктов через запятую
     entries = [e.strip() for e in text.split(",") if e.strip()]
     responses = []
+
+    # Загружаем продукты из файла при каждом сообщении
+    with open("products.json", encoding="utf-8") as f:
+        products = json.load(f)
 
     for entry in entries:
         name, amount, unit = parse_product(entry)
@@ -78,13 +72,12 @@ async def handle_message(message: types.Message):
             responses.append(f"Не удалось распознать: '{entry}'")
             continue
 
-        Product = Query()
-        result = products_table.search(Product.name == name)
-        if not result:
+        # Поиск продукта в списке
+        product = next((p for p in products if p["name"].lower() == name.lower()), None)
+        if not product:
             responses.append(f"Продукт '{name}' не найден.")
             continue
 
-        product = result[0]
         kcal = product["kcal"] * amount / 100
         protein = product["protein"] * amount / 100
         fat = product["fat"] * amount / 100
@@ -101,7 +94,13 @@ async def handle_message(message: types.Message):
             "carbs": carbs
         })
 
-        responses.append(f"{amount}{unit} {name}:\nКкал: {kcal:.1f}\nБелки: {protein:.1f} г\nЖиры: {fat:.1f} г\nУглеводы: {carbs:.1f} г")
+        responses.append(
+            f"{amount}{unit} {name}:\n"
+            f"Ккал: {kcal:.1f}\n"
+            f"Белки: {protein:.1f} г\n"
+            f"Жиры: {fat:.1f} г\n"
+            f"Углеводы: {carbs:.1f} г"
+        )
 
     await message.answer("\n\n".join(responses))
 
