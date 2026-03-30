@@ -1,4 +1,7 @@
 [
-  {"name": "курица", "kcal": 165, "protein": 31, "fat": 3.6, "carbs": 0},
-  {"name": "рис", "kcal": 130, "protein": 2.7, "fat": 0.3, "carbs": 28}
+    {"name": "курица", "kcal": 165, "protein": 31, "fat": 3.6, "carbs": 0},
+    {"name": "рис", "kcal": 130, "protein": 2.7, "fat": 0.3, "carbs": 28},
+    {"name": "яйцо", "kcal": 155, "protein": 13, "fat": 11, "carbs": 1.1},
+    {"name": "молоко", "kcal": 60, "protein": 3.2, "fat": 3.3, "carbs": 5},
+    {"name": "банан", "kcal": 89, "protein": 1.1, "fat": 0.3, "carbs": 23}
 ]
