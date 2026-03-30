@@ -16,11 +16,17 @@ if not TOKEN:
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# TinyDB для продуктов и дневного журнала
-products_db = TinyDB("products.json")
-products_table = products_db.table("products")
+# TinyDB для дневного журнала
 journal_db = TinyDB("journal.json")
 journal_table = journal_db.table("journal")
+
+# Загружаем продукты из файла при старте
+products_db = TinyDB("products.json")
+products_table = products_db.table("products")
+with open("products.json", encoding="utf-8") as f:
+    products = json.load(f)
+products_table.truncate()  # очищаем старую базу
+products_table.insert_multiple(products)
 
 # Функция для парсинга продукта
 def parse_product(text):
@@ -47,7 +53,6 @@ def parse_product(text):
 async def handle_message(message: types.Message):
     text = message.text.lower()
     if text.startswith("/today"):
-        # Вывод дневного отчета
         today = str(date.today())
         records = journal_table.search(Query().date == today)
         if not records:
@@ -80,13 +85,11 @@ async def handle_message(message: types.Message):
             continue
 
         product = result[0]
-        # Считаем нутриенты пропорционально количеству
         kcal = product["kcal"] * amount / 100
         protein = product["protein"] * amount / 100
         fat = product["fat"] * amount / 100
         carbs = product["carbs"] * amount / 100
 
-        # Сохраняем в дневной журнал
         journal_table.insert({
             "date": str(date.today()),
             "name": name,
