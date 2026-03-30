@@ -1,116 +1,110 @@
 import json
 import re
 import asyncio
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message
-from aiogram.filters import Command
-from tinydb import TinyDB, Query
-from datetime import date
 import logging
-import os  # <- добавляем для переменных окружения
+import os
+from datetime import date
+from aiogram import Bot, Dispatcher, types
+from tinydb import TinyDB, Query
 
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = os.getenv("TOKEN")  # <- берём токен из переменной окружения
+TOKEN = os.getenv("TOKEN")
+if not TOKEN:
+    raise ValueError("TOKEN variable is not set!")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Загрузка базы продуктов
-with open("products.json", encoding="utf-8") as f:
-    products_list = json.load(f)
+# TinyDB для продуктов и дневного журнала
+products_db = TinyDB("products.json")
+products_table = products_db.table("products")
+journal_db = TinyDB("journal.json")
+journal_table = journal_db.table("journal")
 
-foods = {p["name"].lower(): p for p in products_list}
-
-# TinyDB для дневника
-db = TinyDB("db.json")
-
-# Функция для распознавания продукта и граммов
-def parse_message(text):
-    text = text.lower()
-    match = re.search(r'\d+', text)
+# Функция для парсинга продукта
+def parse_product(text):
+    """
+    Поддерживает форматы:
+    курица 150г
+    150г курица
+    яйцо 2шт
+    молоко 200мл
+    """
+    text = text.lower().strip()
+    match = re.match(r'(\d+)\s*(г|мл|шт)?\s*(.+)', text)
     if match:
-        amount = float(match.group())
-    else:
-        return None, None
+        amount, unit, name = match.groups()
+        return name.strip(), int(amount), unit or "г"
+    match = re.match(r'(.+?)\s+(\d+)\s*(г|мл|шт)?', text)
+    if match:
+        name, amount, unit = match.groups()
+        return name.strip(), int(amount), unit or "г"
+    return None, None, None
 
-    product = None
-    for name in foods.keys():
-        if name in text:
-            product = name
-            break
-
-    return product, amount
-
-# Команда /start
-@dp.message(Command("start"))
-async def cmd_start(message: Message):
-    await message.answer(
-        "Enter product and grams in one message, for example:\n"
-        "`курица 150` or `150 рис`\n"
-        "Bot will calculate calories, protein, fat, and carbs."
-    )
-
-# Команда /help
-@dp.message(Command("help"))
-async def cmd_help(message: Message):
-    await message.answer(
-        "Enter product and grams in one message, for example:\n"
-        "`курица 150` or `150 рис`\n"
-        "Bot will calculate calories, protein, fat, and carbs."
-    )
-
-# Обработка любых других сообщений
+# Обработка сообщений
 @dp.message()
-async def handle_message(message: Message):
-    user_id = message.from_user.id
-    text = message.text
+async def handle_message(message: types.Message):
+    text = message.text.lower()
+    if text.startswith("/today"):
+        # Вывод дневного отчета
+        today = str(date.today())
+        records = journal_table.search(Query().date == today)
+        if not records:
+            await message.answer("Сегодня ещё нет добавленных продуктов.")
+            return
 
-    product, amount = parse_message(text)
-    if not product:
-        await message.answer("Product not found or quantity missing.")
+        total_kcal = sum(r["kcal"] for r in records)
+        total_protein = sum(r["protein"] for r in records)
+        total_fat = sum(r["fat"] for r in records)
+        total_carbs = sum(r["carbs"] for r in records)
+
+        msg = f"Сегодняшний дневной итог:\nКкал: {total_kcal:.1f}\nБелки: {total_protein:.1f} г\nЖиры: {total_fat:.1f} г\nУглеводы: {total_carbs:.1f} г"
+        await message.answer(msg)
         return
 
-    data = foods[product]
-    kcal = data["kcal"] * amount / 100
-    protein = data["protein"] * amount / 100
-    fat = data["fat"] * amount / 100
-    carbs = data["carbs"] * amount / 100
+    # Можно писать несколько продуктов через запятую
+    entries = [e.strip() for e in text.split(",") if e.strip()]
+    responses = []
 
-    today = str(date.today())
-    db.insert({
-        "user_id": user_id,
-        "product": product,
-        "amount": amount,
-        "kcal": kcal,
-        "protein": protein,
-        "fat": fat,
-        "carbs": carbs,
-        "date": today
-    })
+    for entry in entries:
+        name, amount, unit = parse_product(entry)
+        if not name or not amount:
+            responses.append(f"Не удалось распознать: '{entry}'")
+            continue
 
-    # Итоги за день
-    records = db.search((Query().user_id == user_id) & (Query().date == today))
-    total_kcal = sum(r["kcal"] for r in records)
-    total_protein = sum(r["protein"] for r in records)
-    total_fat = sum(r["fat"] for r in records)
-    total_carbs = sum(r["carbs"] for r in records)
+        Product = Query()
+        result = products_table.search(Product.name == name)
+        if not result:
+            responses.append(f"Продукт '{name}' не найден.")
+            continue
 
-    await message.answer(
-        f"{amount} g {product}\n"
-        f"Calories: {kcal:.1f}\n"
-        f"Protein: {protein:.1f} g\n"
-        f"Fat: {fat:.1f} g\n"
-        f"Carbs: {carbs:.1f} g\n\n"
-        f"Total today:\n"
-        f"Calories: {total_kcal:.1f}\n"
-        f"Protein: {total_protein:.1f} g\n"
-        f"Fat: {total_fat:.1f} g\n"
-        f"Carbs: {total_carbs:.1f} g"
-    )
+        product = result[0]
+        # Считаем нутриенты пропорционально количеству
+        kcal = product["kcal"] * amount / 100
+        protein = product["protein"] * amount / 100
+        fat = product["fat"] * amount / 100
+        carbs = product["carbs"] * amount / 100
 
-# Запуск бота
+        # Сохраняем в дневной журнал
+        journal_table.insert({
+            "date": str(date.today()),
+            "name": name,
+            "amount": amount,
+            "unit": unit,
+            "kcal": kcal,
+            "protein": protein,
+            "fat": fat,
+            "carbs": carbs
+        })
+
+        responses.append(f"{amount}{unit} {name}:\nКкал: {kcal:.1f}\nБелки: {protein:.1f} г\nЖиры: {fat:.1f} г\nУглеводы: {carbs:.1f} г")
+
+    await message.answer("\n\n".join(responses))
+
 async def main():
+    print("Bot started")
     await dp.start_polling(bot)
 
-asyncio.run(main())
+if name == "__main__":
+    asyncio.run(main())
