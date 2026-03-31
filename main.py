@@ -65,6 +65,7 @@ async def handle_message(message: types.Message):
     # Загружаем продукты из файла при каждом сообщении
     with open("products.json", encoding="utf-8") as f:
         products = json.load(f)
+        print("LOADING PRODUCTS FILE")
 
     for entry in entries:
         name, amount, unit = parse_product(entry)
