@@ -41,10 +41,15 @@ async def cmd_start(message: Message):
 async def handle_message(message: Message):
     text = message.text.lower()
     found = []
-    for name, cal in products.items():
+    for product in products:
         # простая проверка: ищем название продукта в тексте
-        if name in text:
-            found.append(f"{name}: {cal} ккал")
+        if product["name"] in text:
+            found.append(
+                f"{product['name']}: {product['kcal']} ккал, "
+                f"Белки: {product['protein']}г, "
+                f"Жиры: {product['fat']}г, "
+                f"Углеводы: {product['carbs']}г"
+            )
     if found:
         await message.answer("\n".join(found))
     else:
