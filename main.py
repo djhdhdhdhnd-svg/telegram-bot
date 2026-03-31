@@ -60,8 +60,14 @@ def search_food(query: str):
     params = {"query": query}
     url = "https://platform.fatsecret.com/rest/server.api?method=foods.search"
 
+    logging.debug(f"[FatSecret] Token (first 20 chars): {token[:20]}")
+    logging.debug(f"[FatSecret] Request URL: {url}")
+    logging.debug(f"[FatSecret] Request params: {params}")
+
     try:
         r = requests.get(url, headers=headers, params=params)
+        logging.debug(f"[FatSecret] Response status code: {r.status_code}")
+        logging.debug(f"[FatSecret] Response body: {r.text}")
         r.raise_for_status()
         data = r.json()
 
@@ -123,5 +129,5 @@ async def handle_message(message: types.Message):
 # Запуск бота
 # =======================
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     asyncio.run(dp.start_polling(bot))
