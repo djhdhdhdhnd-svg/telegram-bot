@@ -1,77 +1,127 @@
-print("VERSION CHECK")  # <-- это просто метка, чтобы увидеть, что файл новый
-import json
+import asyncio
+import logging
 import os
 import re
-import logging
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message
-from aiogram.filters import Command
-import asyncio
+import time
+from aiogram import Bot, Dispatcher, types
+import requests
 
-logging.basicConfig(level=logging.INFO)
+# =======================
+# Настройки через переменные окружения
+# =======================
+TOKEN = os.getenv("TELEGRAM_TOKEN")  # Telegram токен бота
+CLIENT_ID = os.getenv("FATSECRET_CLIENT_ID")  # FatSecret Client ID
+CLIENT_SECRET = os.getenv("FATSECRET_CLIENT_SECRET")  # FatSecret Client Secret
 
-# --- Получаем токен из переменной окружения Railway ---
-TOKEN = os.environ.get("TOKEN")  # В Railway нужно добавить переменную окружения TOKEN с токеном бота
+if not TOKEN or not CLIENT_ID or not CLIENT_SECRET:
+    raise ValueError("Не заданы обязательные переменные окружения: TELEGRAM_TOKEN, FATSECRET_CLIENT_ID, FATSECRET_CLIENT_SECRET")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- Загружаем продукты ---
-PRODUCTS_FILE = "products.json"
+# =======================
+# Кэш токена FatSecret
+# =======================
+fatsecret_token_cache = {"token": None, "expires_at": 0}
 
-def load_products():
+def get_fatsecret_token():
+    now = time.time()
+    if fatsecret_token_cache["token"] and fatsecret_token_cache["expires_at"] > now + 10:
+        return fatsecret_token_cache["token"]
+
+    token_url = "https://oauth.fatsecret.com/connect/token"
+    data = {"grant_type": "client_credentials"}
     try:
-        with open(PRODUCTS_FILE, encoding="utf-8") as f:
-            products = json.load(f)
-            print("LOADING PRODUCTS FILE")
-            print(products)  # Показываем, что продукты реально загружены
-            return products
+        response = requests.post(token_url, data=data, auth=(CLIENT_ID, CLIENT_SECRET))
+        response.raise_for_status()
+        resp_json = response.json()
+        token = resp_json.get("access_token")
+        expires_in = resp_json.get("expires_in", 3600)
+        if token:
+            fatsecret_token_cache["token"] = token
+            fatsecret_token_cache["expires_at"] = now + expires_in
+            return token
+        else:
+            logging.error("Не удалось получить токен FatSecret")
+            return None
     except Exception as e:
-        print("Error loading products:", e)
-        return {}
+        logging.error(f"Ошибка получения токена FatSecret: {e}")
+        return None
 
-products = load_products()
+# =======================
+# Поиск продукта на FatSecret
+# =======================
+def search_food(query: str):
+    token = get_fatsecret_token()
+    if not token:
+        return None
 
-# --- Обработка команды /start ---
-@dp.message(Command(commands=["start"]))
-async def cmd_start(message: Message):
-    await message.answer("Привет! Я бот, который считает калории.\nОтправь продукт и количество, чтобы получить калории.")
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"query": query}
+    url = "https://platform.fatsecret.com/rest/server.api?method=foods.search"
 
-# --- Обработка любого текста ---
+    try:
+        r = requests.get(url, headers=headers, params=params)
+        r.raise_for_status()
+        data = r.json()
+
+        if "foods" in data and "food" in data["foods"]:
+            food_item = data["foods"]["food"][0]
+            name = food_item["food_name"]
+            calories = int(food_item.get("calories", 0))
+            protein = float(food_item.get("protein", 0))
+            fat = float(food_item.get("fat", 0))
+            carbs = float(food_item.get("carbohydrate", 0))
+            return {"name": name, "calories": calories, "белки": protein, "жиры": fat, "углеводы": carbs}
+    except Exception as e:
+        logging.error(f"Ошибка при поиске продукта '{query}': {e}")
+
+    return None
+
+# =======================
+# Обработка сообщений
+# =======================
 @dp.message()
-async def handle_message(message: Message):
-    text = message.text.lower().strip()
+async def handle_message(message: types.Message):
+    text = message.text.strip()
+    if not text:
+        return
 
-    # Extract amount (grams) from the message — look for the first integer or float
-    amount_match = re.search(r"(\d+(?:\.\d+)?)", text)
-    if amount_match:
-        amount = float(amount_match.group(1))
-    else:
-        amount = 100.0  # default to 100g if no number provided
+    # Разделяем продукты по запятой
+    products_input = [p.strip() for p in text.split(",") if p.strip()]
+    responses = []
 
-    found = []
-    for product in products:
-        if product["name"] in text:
-            ratio = amount / 100
-            kcal   = round(product["kcal"]    * ratio, 1)
-            protein = round(product["protein"] * ratio, 1)
-            fat    = round(product["fat"]      * ratio, 1)
-            carbs  = round(product["carbs"]    * ratio, 1)
-            found.append(
-                f"{product['name']} ({int(amount) if amount == int(amount) else amount}г): {kcal} ккал, "
-                f"Белки: {protein}г, "
-                f"Жиры: {fat}г, "
-                f"Углеводы: {carbs}г"
+    for p in products_input:
+        numbers = re.findall(r"\d+", p)
+        if numbers:
+            weight = int(numbers[0])
+            product_name = re.sub(r"\d+", "", p).strip()
+        else:
+            weight = 100
+            product_name = p
+
+        if not product_name:
+            responses.append("Не удалось определить продукт")
+            continue
+
+        product = search_food(product_name)
+        if product:
+            factor = weight / 100
+            responses.append(
+                f"{product['name']} ({weight} г):\n"
+                f"Калории: {int(product['calories'] * factor)} ккал\n"
+                f"Белки: {round(product['белки'] * factor, 1)} г\n"
+                f"Жиры: {round(product['жиры'] * factor, 1)} г\n"
+                f"Углеводы: {round(product['углеводы'] * factor, 1)} г"
             )
-    if found:
-        await message.answer("\n".join(found))
-    else:
-        await message.answer("Продукт не найден. Добавь его в products.json.")
+        else:
+            responses.append(f"Продукт '{product_name}' не найден в FatSecret")
 
-# --- Основной запуск ---
-async def main():
-    print("BOT STARTED")
-    await dp.start_polling(bot, skip_updates=True)
+    await message.answer("\n\n".join(responses))
 
+# =======================
+# Запуск бота
+# =======================
 if __name__ == "__main__":
-    asyncio.run(main())
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(dp.start_polling(bot))
