@@ -1,3 +1,4 @@
+print("VERSION CHECK")  # <-- это просто метка, чтобы увидеть, что файл новый
 import json
 import os
 import logging
