@@ -57,7 +57,7 @@ def search_food(query: str):
         return None
 
     headers = {"Authorization": f"Bearer {token}"}
-    params = {"query": query}
+    params = {"query": query, "format": "json"}
     url = "https://platform.fatsecret.com/rest/server.api?method=foods.search"
 
     logging.debug(f"[FatSecret] Token (first 20 chars): {token[:20]}")
