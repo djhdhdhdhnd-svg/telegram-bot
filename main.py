@@ -1,6 +1,7 @@
 print("VERSION CHECK")  # <-- это просто метка, чтобы увидеть, что файл новый
 import json
 import os
+import re
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message
@@ -39,16 +40,28 @@ async def cmd_start(message: Message):
 # --- Обработка любого текста ---
 @dp.message()
 async def handle_message(message: Message):
-    text = message.text.lower()
+    text = message.text.lower().strip()
+
+    # Extract amount (grams) from the message — look for the first integer or float
+    amount_match = re.search(r"(\d+(?:\.\d+)?)", text)
+    if amount_match:
+        amount = float(amount_match.group(1))
+    else:
+        amount = 100.0  # default to 100g if no number provided
+
     found = []
     for product in products:
-        # простая проверка: ищем название продукта в тексте
         if product["name"] in text:
+            ratio = amount / 100
+            kcal   = round(product["kcal"]    * ratio, 1)
+            protein = round(product["protein"] * ratio, 1)
+            fat    = round(product["fat"]      * ratio, 1)
+            carbs  = round(product["carbs"]    * ratio, 1)
             found.append(
-                f"{product['name']}: {product['kcal']} ккал, "
-                f"Белки: {product['protein']}г, "
-                f"Жиры: {product['fat']}г, "
-                f"Углеводы: {product['carbs']}г"
+                f"{product['name']} ({int(amount) if amount == int(amount) else amount}г): {kcal} ккал, "
+                f"Белки: {protein}г, "
+                f"Жиры: {fat}г, "
+                f"Углеводы: {carbs}г"
             )
     if found:
         await message.answer("\n".join(found))
